@@ -128,7 +128,7 @@ contract DSCEngine is ReentrancyGuard {
 
     /// @param tokenCollateralAddress The address of the token to deposit as collateral
     /// @param amountCollateral The amount of collateral to deposit
-    function despositCollateral(
+    function depositCollateral(
         address tokenCollateralAddress,
         uint256 amountCollateral
     ) external moreThanZero(amountCollateral) isAllowedToken(tokenCollateralAddress) nonReentrant {
