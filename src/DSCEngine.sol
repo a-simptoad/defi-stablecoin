@@ -25,6 +25,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
+import {console} from "forge-std/Test.sol";
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -71,7 +72,7 @@ contract DSCEngine is ReentrancyGuard {
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 50; // 200% overcollateralized
     uint256 private constant LIQUIDATION_PRECISION = 100;
-    uint256 private constant MIN_HEALTH_FACTOR = 1;
+    uint256 private constant MIN_HEALTH_FACTOR = 1e18;
     uint256 private constant LIQUIDITY_BONUS = 10;
 
     mapping(address token => address priceFeed) private s_priceFeeds; // tokenToPriceFeed 
@@ -101,8 +102,8 @@ contract DSCEngine is ReentrancyGuard {
     modifier isAllowedToken(address token) {
         if(s_priceFeeds[token] == address(0)){
             revert DSCEngine__TokenNotAllowed(token);
-            _;
         }
+        _;
     }
 
     /////////////////////////
@@ -225,8 +226,8 @@ contract DSCEngine is ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function getHealthFactor() external {
-
+    function getHealthFactor(address user) external returns (uint256) {
+        _healthFactor(user);
     }
 
     /////////////////////////////////
@@ -243,6 +244,10 @@ contract DSCEngine is ReentrancyGuard {
         // total DSC minted
         // total collateral value
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
+
+        if(totalDscMinted == 0) {
+            return type(uint256).max;
+        }
         // return (collateralValueInusd / totalDscMinted); // 100$ worth collateral and 100 value makes the health factor 1 but we need overcollaterlization
         uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
 
@@ -304,6 +309,10 @@ contract DSCEngine is ReentrancyGuard {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
         // No. of decimals returned from Chainlink are 8 hence we multiply by 1e10
-        return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+        return ((usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION));
+    }
+
+    function getAccountInformation(address user) public view returns(uint256 totalDscMinted, uint256 collateralValueInUsd){
+        (totalDscMinted, collateralValueInUsd) = _getAccountInformation(user);
     }
 }
