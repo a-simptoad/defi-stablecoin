@@ -63,7 +63,7 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__BreaksHealthFactor(uint256 healthFactor);
     error DSCEngine__MintFailed();
     error DSCEngine__HealthFactorOk();
-    error DSCEngine__HealthFactorNotImproved();
+    error DSCEngine__HealthFactorNotImproved(uint256 end, uint256 start);
 
     ///////////////////////////
     ///// State Variables /////
@@ -220,14 +220,14 @@ contract DSCEngine is ReentrancyGuard {
 
         uint256 endingUserHealthFactor = _healthFactor(user);
         if(endingUserHealthFactor <= startingUserHealthFactor){
-            revert DSCEngine__HealthFactorNotImproved();
+            revert DSCEngine__HealthFactorNotImproved(endingUserHealthFactor, startingUserHealthFactor);
         }
 
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
     function getHealthFactor(address user) external returns (uint256) {
-        _healthFactor(user);
+        return _healthFactor(user);
     }
 
     /////////////////////////////////
@@ -314,5 +314,9 @@ contract DSCEngine is ReentrancyGuard {
 
     function getAccountInformation(address user) public view returns(uint256 totalDscMinted, uint256 collateralValueInUsd){
         (totalDscMinted, collateralValueInUsd) = _getAccountInformation(user);
+    }
+
+    function getCollateralTokens() external view returns (address[] memory) {
+        return s_collateralTokens;
     }
 }

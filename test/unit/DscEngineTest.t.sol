@@ -25,7 +25,8 @@ contract DscEngineTest is Test {
     uint256 public constant AMOUNT_COLLATERAL = 10 ether; // 20,000 USD in value
     uint256 public constant STARTING_ERC20_BALANCE = 10 ether;
     uint256 public constant AMOUNT_DSC_MINTED = 100 ether;
-    uint256 public constant AMOUNT_LIQUID_DSC = 50 ether;
+    uint256 public constant MORE_AMOUNT_DSC_MINTED = 8000 ether;
+    uint256 public constant AMOUNT_LIQUID_DSC = 7000 ether;
     int256 public constant LOWER_ETH_PRICE_USD = 1000e8;
 
     function setUp() public {
@@ -35,7 +36,7 @@ contract DscEngineTest is Test {
         ERC20Mock(weth).mint(USER, STARTING_ERC20_BALANCE);
         ERC20Mock(wbtc).mint(USER, STARTING_ERC20_BALANCE);
 
-        ERC20Mock(weth).mint(LIQUIDATOR, STARTING_ERC20_BALANCE);
+        ERC20Mock(weth).mint(LIQUIDATOR, STARTING_ERC20_BALANCE * 2);
 
         mockAggregator = MockV3Aggregator(ethUsdPriceFeed);
     }
@@ -89,21 +90,21 @@ contract DscEngineTest is Test {
         vm.stopPrank();
     }
 
-    modifier depositedCollateral() {
-        vm.startPrank(USER);
-        ERC20Mock(weth).approve(address(dscEngine), AMOUNT_COLLATERAL);
-        dscEngine.depositCollateral(weth, AMOUNT_COLLATERAL);
+    modifier depositedCollateral(address user, uint256 amount) {
+        vm.startPrank(user);
+        ERC20Mock(weth).approve(address(dscEngine), amount);
+        dscEngine.depositCollateral(weth, amount);
         vm.stopPrank();
         _;
     }
 
-    modifier dscMinted() {
-        vm.prank(USER);
-        dscEngine.mintDsc(AMOUNT_DSC_MINTED);
+    modifier dscMinted(address user, uint256 amount) {
+        vm.prank(user);
+        dscEngine.mintDsc(amount);
         _;
     }
 
-    function testCanDepositCollateralAndGetAccountInfo() public depositedCollateral{
+    function testCanDepositCollateralAndGetAccountInfo() public depositedCollateral(USER, AMOUNT_COLLATERAL){
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = dscEngine.getAccountInformation(USER);
         uint256 expectedTotalDscMinted = 0;
         uint256 expectedCollateralValueInUsd = dscEngine.getTokenAmountFromUsd(weth, collateralValueInUsd);
@@ -112,7 +113,7 @@ contract DscEngineTest is Test {
         assertEq(AMOUNT_COLLATERAL, expectedCollateralValueInUsd);
     }
     
-    function testGetAccountCollateralValue() public depositedCollateral {
+    function testGetAccountCollateralValue() public depositedCollateral(USER, AMOUNT_COLLATERAL) {
         // 10 ether in initial deposit
         vm.startPrank(USER);
         ERC20Mock(wbtc).approve(address(dscEngine), AMOUNT_COLLATERAL);
@@ -127,7 +128,7 @@ contract DscEngineTest is Test {
 
     // burnDsc function
 
-    function testBurnDsc() public depositedCollateral dscMinted{
+    function testBurnDsc() public depositedCollateral(USER, AMOUNT_COLLATERAL) dscMinted(USER, AMOUNT_DSC_MINTED){
         uint256 expectedDscAfterBurning = 0;
 
         vm.startPrank(USER);
@@ -141,7 +142,7 @@ contract DscEngineTest is Test {
 
     // redeem collateral function
 
-    function testRedeemCollateralWorksAndEmitsEvent() public depositedCollateral {
+    function testRedeemCollateralWorksAndEmitsEvent() public depositedCollateral(USER, AMOUNT_COLLATERAL) {
         uint256 initalBalance = ERC20Mock(weth).balanceOf(USER);
 
         vm.startPrank(USER);
@@ -156,7 +157,7 @@ contract DscEngineTest is Test {
 
     // HealthFactor tests
 
-    function testHealthFactor() public depositedCollateral dscMinted{
+    function testHealthFactor() public depositedCollateral(USER, AMOUNT_COLLATERAL) dscMinted(USER, AMOUNT_DSC_MINTED){
 
         // deposited collateral = 10e18
         // minted dsc = 10
@@ -167,32 +168,41 @@ contract DscEngineTest is Test {
         assertEq(healthFactor, expectedFactor);
     }
 
-    // function testLiquidateRevertsHealthFactorOk() public depositedCollateral dscMinted{
-    //     // In this function we are assuming the health factor is ok hence no change of value of weth
+    function testLiquidateRevertsHealthFactorOk() public depositedCollateral(USER, AMOUNT_COLLATERAL) dscMinted(USER, AMOUNT_DSC_MINTED){
+        // In this function we are assuming the health factor is ok hence no change of value of weth
         
-    //     vm.startPrank(LIQUIDATOR);
-    //     vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
-    //     dscEngine.liquidate(weth, USER, AMOUNT_DSC_MINTED);
-    // }
+        vm.startPrank(LIQUIDATOR);
+        ERC20Mock(weth).approve(address(dscEngine), AMOUNT_COLLATERAL);
+        dscEngine.depositCollateralAndMintDsc(weth, AMOUNT_COLLATERAL, AMOUNT_DSC_MINTED);
+        dsc.approve(address(dscEngine), AMOUNT_DSC_MINTED);
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
+        dscEngine.liquidate(weth, USER, AMOUNT_DSC_MINTED);
+        vm.stopPrank();
+    }
     
-    // function testLiquidate() public depositedCollateral dscMinted {
-    //     // Collateral is deposited and dsc have been minted for USER
-
+    function testLiquidate() public depositedCollateral(USER, AMOUNT_COLLATERAL) dscMinted(USER, MORE_AMOUNT_DSC_MINTED) depositedCollateral(LIQUIDATOR, AMOUNT_COLLATERAL * 2) dscMinted(LIQUIDATOR, AMOUNT_LIQUID_DSC) {
+        // Collateral is deposited and dsc have been minted for USER
+        // 20000 ether collateral (20000 usd), 8000 dsc minted
+        // Collateral is deposited for LIQUIDATOR AS WELL (20000 usd)
       
-    //     // Now we need to reduce the value of weth
-    //     // MockV3Aggregator(ethUsdPriceFeed).updateAnswer(LOWER_ETH_PRICE_USD);
-    //     mockAggregator.updateAnswer(LOWER_ETH_PRICE_USD);
+        // Now we need to reduce the value of weth
+        mockAggregator.updateAnswer(LOWER_ETH_PRICE_USD);
 
-    //     // Then a LIQUIDATOR will try to liquidate the position
-    //     vm.startPrank(LIQUIDATOR);
-    //     ERC20Mock(weth).approve(address(dscEngine), AMOUNT_COLLATERAL);
-    //     dscEngine.depositCollateral(weth, AMOUNT_COLLATERAL);
-    //     dscEngine.mintDsc(AMOUNT_LIQUID_DSC);
+        // 10000 ether collateral (10000 usd)
+        // 8000 ether dsc minted already
+        // healthFactor now will be 0.5 ether < (min_health_factor)
 
-    //     dsc.approve(address(dscEngine), AMOUNT_LIQUID_DSC);
-    //     dscEngine.liquidate(weth, USER, AMOUNT_LIQUID_DSC);
-    //     vm.stopPrank();
-    // }
+        // Then a LIQUIDATOR will try to liquidate the position
+        vm.startPrank(LIQUIDATOR);
+        dsc.approve(address(dscEngine), AMOUNT_LIQUID_DSC);
+        dscEngine.liquidate(weth, USER, AMOUNT_LIQUID_DSC);
+        vm.stopPrank();
+
+        // Now the user has 20k usd as collateral and 10k usd as dsc tokens
+        // The health factor is 10k / 10k usd = 1 ether
+
+
+    }
 }
 
 // MockV3Aggregator instance does not initialize in the test directly but i had to intialize 
